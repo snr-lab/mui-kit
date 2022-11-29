@@ -491,7 +491,7 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
                               align={column.alignRight ? 'right' : 'left'}
                               >
                                 { typeof column.CellComponent === "function" ?
-                                  <column.CellComponent tableProps={tableProps} rowData={{...row}} cellData={{...row[column.id]}} cellProps={column.cellProps} cellIndex={cellIndex} /> :
+                                  <column.CellComponent tableProps={tableProps} rowData={{...row}} cellData={(row[column.id] !== null && typeof row[column.id] === "object") ? {...row[column.id]} : row[column.id] } cellProps={column.cellProps} cellIndex={cellIndex} /> :
                                   <Typography variant="body2" className={classes.cellText}>{column.objectPath ? deepFind(row[column.id], column.objectPath) : row[column.id]}</Typography>
                                 }
                             </TableCell> 
