@@ -167,6 +167,11 @@ const useToolbarStyles = makeStyles((theme: Theme) =>
       padding: 10,
       color: 'rgba(0, 0, 0, 0.54)',
       height: 42
+    },
+    deleting: {
+      position: "absolute",
+      left: "50%",
+      marginLeft: -10
     }
   }),
 );
@@ -180,11 +185,12 @@ interface EnhancedTableToolbarProps {
   onRowAdd?: Function;
   onRowDelete?: Function;
   onSearchChange?: Function;
+  isDeleting?: boolean;
 }
 
 const EnhancedTableToolbar: React.FC<EnhancedTableToolbarProps> = (props) => {
   const classes = useToolbarStyles();
-  const { title, selected, columns, updateColumns, onFilterList, onRowAdd, onRowDelete, onSearchChange } = props;
+  const { title, selected, columns, updateColumns, onFilterList, onRowAdd, onRowDelete, onSearchChange, isDeleting } = props;
   const [visibleColumnMenuEl, setVisibleColumnMenuEl] = useState<null | HTMLElement>(null);
 
   const filterList = () => {
@@ -198,7 +204,7 @@ const EnhancedTableToolbar: React.FC<EnhancedTableToolbarProps> = (props) => {
     }
   }
   const deleteRow = () => {
-    if(typeof onRowDelete === "function"){
+    if(typeof onRowDelete === "function" && !isDeleting){
       onRowDelete(selected);
     }
   }
@@ -235,8 +241,9 @@ const EnhancedTableToolbar: React.FC<EnhancedTableToolbarProps> = (props) => {
       {selected.length > 0 ? (
         <Fragment>
           {typeof onRowDelete === "function" && <Tooltip title="Delete">
-            <IconButton aria-label="Delete item" onClick={deleteRow}>
+            <IconButton aria-label="Delete item" onClick={deleteRow} disabled={ isDeleting }>
               <Delete />
+              { isDeleting && <CircularProgress size={20} className={classes.deleting} /> }
             </IconButton>
           </Tooltip>}
         </Fragment>
@@ -323,12 +330,13 @@ interface EnhancedTableProps {
   RowExpansionComponent?: React.FunctionComponent<any>;
   minWidth?: number;
   isLoading?: boolean;
+  isDeleting?: boolean;
   loadingError?: string;
   tableProps?: any;
 }
 
 export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
-  const { title, columns, primaryKey, rows, rowsPerPageOptions, isLoading, loadingError, defaultOrderBy, disableSelection, onFilterList, onRowAdd, onRowDelete, onSearchChange, RowExpansionComponent, minWidth, tableProps} = props;
+  const { title, columns, primaryKey, rows, rowsPerPageOptions, isLoading, isDeleting, loadingError, defaultOrderBy, disableSelection, onFilterList, onRowAdd, onRowDelete, onSearchChange, RowExpansionComponent, minWidth, tableProps} = props;
   const classes = useStyles();
   const [allColumns, setAllColumns] = useState<TableColumn[]>(columns);
   const [visibleColumns, setVisibleColumns] = useState<TableColumn[]>(getVisibleColumns(columns));
@@ -428,6 +436,7 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
           onRowAdd={onRowAdd}
           onRowDelete={onRowDelete}
           onSearchChange={onSearchChange}
+          isDeleting={isDeleting}
          />
         <TableContainer>
           <Table
