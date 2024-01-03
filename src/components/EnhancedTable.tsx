@@ -4,7 +4,7 @@ import { createStyles, lighten, makeStyles, Theme } from '@material-ui/core/styl
 import { Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Typography, Checkbox, IconButton, Tooltip, CircularProgress, Toolbar, Menu, MenuItem, ListItemText, Box, InputBase } from '@material-ui/core';
 import {Visibility, Delete, FilterList, AddCircleOutline, Search} from '@material-ui/icons';
 
-interface TableColumn {
+type TableColumn = {
   id: string;
   label: string | React.FunctionComponent<any>;
   CellComponent?: React.FunctionComponent<any>;
@@ -15,6 +15,8 @@ interface TableColumn {
   hidden?: boolean;
   alwaysAvailable?: boolean;
 }
+
+type Order = 'asc' | 'desc';
 
 function deepFind(obj: any, path: string) {
   const paths = path.split('.');
@@ -29,30 +31,20 @@ function deepFind(obj: any, path: string) {
   return current;
 }
 
-function descendingComparator<T>(a: T, b: T, orderBy: keyof T) {
+function comparatorFunc<T>(a: T, b: T,  order: Order, orderBy: string) {
   const valueA = deepFind(a, String(orderBy));
   const valueB = deepFind(b, String(orderBy));
   if (valueB < valueA) {
-    return -1;
+    return order === 'desc' ? -1 : 1;
   }
   if (valueB > valueA) {
-    return 1;
+    return order === 'desc' ? 1 : -1;
   }
   return 0;
 }
 
-type Order = 'asc' | 'desc';
-
-function getComparator<Key extends keyof any>(
-  order: Order,
-  orderBy: Key,
-): (a: { [key in Key]: number | string }, b: { [key in Key]: number | string }) => number {
-  return order === 'desc'
-    ? (a, b) => descendingComparator(a, b, orderBy)
-    : (a, b) => -descendingComparator(a, b, orderBy);
-}
-
-function stableSort<T>(array: T[], comparator: (a: T, b: T) => number) {
+export function sortRows<T>(array: T[], order: Order, orderBy: string) {
+  const comparator = (a: T, b: T) => comparatorFunc(a, b, order, orderBy);
   const stabilizedThis = array.map((el, index) => [el, index] as [T, number]);
   stabilizedThis.sort((a, b) => {
     const order = comparator(a[0], b[0]);
@@ -77,7 +69,7 @@ function getFlexibleColumns(columns: TableColumn[]){
   });
 }
 
-interface EnhancedTableHeadProps {
+type EnhancedTableHeadProps = {
   classes: ReturnType<typeof useStyles>;
   visibleColumns: TableColumn[];
   numSelected: number;
@@ -176,21 +168,24 @@ const useToolbarStyles = makeStyles((theme: Theme) =>
   }),
 );
 
-interface EnhancedTableToolbarProps {
+type EnhancedTableToolbarProps = {
   title: string;
-  selected: (string | number)[];
+  selected: string[];
+  allSelected: boolean;
   columns: TableColumn[];
-  updateColumns: Function;
-  onFilterList?: Function;
-  onRowAdd?: Function;
-  onRowDelete?: Function;
-  onSearchChange?: Function;
+  updateColumns: (columns: TableColumn[]) => void;
+  onFilterList?: () => void;
+  onRowAdd?: () => void;
+  onRowDelete?: (selected: string[]) => void;
+  onSearchChange?: (query: string) => void;
   isDeleting?: boolean;
+  page: number,
+  changePage: (event: unknown, newPage: number) => void
 }
 
 const EnhancedTableToolbar: React.FC<EnhancedTableToolbarProps> = (props) => {
   const classes = useToolbarStyles();
-  const { title, selected, columns, updateColumns, onFilterList, onRowAdd, onRowDelete, onSearchChange, isDeleting } = props;
+  const { title, selected, allSelected, columns, updateColumns, onFilterList, onRowAdd, onRowDelete, onSearchChange, isDeleting, page, changePage } = props;
   const [visibleColumnMenuEl, setVisibleColumnMenuEl] = useState<null | HTMLElement>(null);
 
   const filterList = () => {
@@ -205,6 +200,9 @@ const EnhancedTableToolbar: React.FC<EnhancedTableToolbarProps> = (props) => {
   }
   const deleteRow = () => {
     if(typeof onRowDelete === "function" && !isDeleting){
+      if(page > 0 && allSelected){
+        changePage(null, page - 1);
+      }
       onRowDelete(selected);
     }
   }
@@ -315,18 +313,30 @@ const useStyles = makeStyles((theme: Theme) =>
   }),
 );
 
-interface EnhancedTableProps {
+export type TableQueryType = {
+  offset: number,
+  startCursor: any,
+  endCursor: any,
+  direction: "initial" | "previous" | "next",
+  rowsPerPage: number,
+  order: Order,
+  orderBy: string
+}
+
+type EnhancedTableProps = {
   title: string;
   primaryKey: string;
   columns: TableColumn[];
   rows: any[];
+  totalCount: number;
+  fetchRows: (queryParam: TableQueryType) => void
   rowsPerPageOptions: number[];
   defaultOrderBy: string;
   disableSelection?: boolean;
-  onFilterList?: Function;
-  onRowAdd?: Function;
-  onRowDelete?: Function;
-  onSearchChange?: Function;
+  onFilterList?: () => void;
+  onRowAdd?: () => void;
+  onRowDelete?: (selected: string[]) => void;
+  onSearchChange?: (query: string) => void;
   RowExpansionComponent?: React.FunctionComponent<any>;
   minWidth?: number;
   isLoading?: boolean;
@@ -336,13 +346,13 @@ interface EnhancedTableProps {
 }
 
 export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
-  const { title, columns, primaryKey, rows, rowsPerPageOptions, isLoading, isDeleting, loadingError, defaultOrderBy, disableSelection, onFilterList, onRowAdd, onRowDelete, onSearchChange, RowExpansionComponent, minWidth, tableProps} = props;
+  const { title, columns, primaryKey, rows, totalCount, fetchRows, rowsPerPageOptions, isLoading, isDeleting, loadingError, defaultOrderBy, disableSelection, onFilterList, onRowAdd, onRowDelete, onSearchChange, RowExpansionComponent, minWidth, tableProps} = props;
   const classes = useStyles();
   const [allColumns, setAllColumns] = useState<TableColumn[]>(columns);
   const [visibleColumns, setVisibleColumns] = useState<TableColumn[]>(getVisibleColumns(columns));
   const [order, setOrder] = useState<Order>('asc');
   const [orderBy, setOrderBy] = useState<string>(defaultOrderBy);
-  const [selected, setSelected] = useState<(string | number)[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(rowsPerPageOptions[0]);
   const [expandedRow, setExpandedRow] = useState<string>();
@@ -363,8 +373,19 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
 
   const handleRequestSort = (event: React.MouseEvent<unknown>, property: string) => {
     const isAsc = orderBy === property && order === 'asc';
+    fetchRows({
+      offset: 0,
+      startCursor: null,
+      endCursor: null,
+      direction: "initial",
+      rowsPerPage,
+      order: isAsc ? 'desc' : 'asc',
+      orderBy: property
+    });
+
     setOrder(isAsc ? 'desc' : 'asc');
     setOrderBy(property);
+    setPage(0);
   };
 
   const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -387,7 +408,7 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
   const handleCheckboxClick = (event: React.MouseEvent<unknown>, primaryKey: string) => {
     event.stopPropagation();
     const selectedIndex = selected.indexOf(primaryKey);
-    let newSelected: (string | number)[] = [];
+    let newSelected: string[] = [];
 
     if (selectedIndex === -1) {
       newSelected = newSelected.concat(selected, primaryKey);
@@ -410,11 +431,37 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
   }
 
   const handleChangePage = (event: unknown, newPage: number) => {
+    const direction = newPage > page ? "next" : "previous";
+    let offset = direction === "next" ? (page + 1) * rowsPerPage : (page - 1) * rowsPerPage;
+    if(offset < 0){
+      offset = 0;
+    } else if(offset > totalCount){
+      offset = totalCount;
+    }
+    fetchRows({
+      offset,
+      startCursor: rows[ 0 ],
+      endCursor: rows[ rows.length - 1 ],
+      direction,
+      rowsPerPage,
+      order,
+      orderBy
+    });
     setPage(newPage);
   };
 
   const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
+    const rowsPerPage = parseInt(event.target.value, 10);
+    setRowsPerPage(rowsPerPage);
+    fetchRows({
+      offset: 0,
+      startCursor: null,
+      endCursor: null,
+      direction: "initial",
+      rowsPerPage,
+      order,
+      orderBy
+    });
     setPage(0);
   };
 
@@ -422,14 +469,27 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
 
   let emptyRows = rowsPerPage - 2;
   if(!isLoading && !loadingError){
-    emptyRows = rowsPerPage - Math.min(rowsPerPage, rows.length - page * rowsPerPage)
+    emptyRows = rowsPerPage - rows.length;
   }
+
+  useEffect(() => {
+    fetchRows({
+      offset: 0,
+      startCursor: null,
+      endCursor: null,
+      direction: "initial",
+      rowsPerPage,
+      order,
+      orderBy
+    });
+  }, []);
 
   return (
     <div className={classes.root}>
         <EnhancedTableToolbar  
           title={title}
           selected={selected}
+          allSelected={selected.length === rows.length}
           columns={allColumns}
           updateColumns={handleColumsChange}
           onFilterList={onFilterList}
@@ -437,6 +497,8 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
           onRowDelete={onRowDelete}
           onSearchChange={onSearchChange}
           isDeleting={isDeleting}
+          page={page}
+          changePage={handleChangePage}
          />
         <TableContainer>
           <Table
@@ -469,11 +531,8 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
                   </Typography>
                 </TableCell>
               </TableRow>}
-              {(!isLoading && !loadingError) && stableSort(rows, getComparator(order, orderBy))
-                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((row: any, index: number) => {
+              {(!isLoading && !loadingError) && rows.map((row: any, index: number) => {
                   const isItemSelected = isSelected(row[primaryKey]);
-
                   return (
                     <Fragment key={row[primaryKey]}>
                       <TableRow
@@ -526,7 +585,7 @@ export const EnhancedTable: React.FC<EnhancedTableProps> = (props) => {
         <TablePagination
           rowsPerPageOptions={rowsPerPageOptions}
           component="div"
-          count={rows.length}
+          count={totalCount}
           rowsPerPage={rowsPerPage}
           page={page}
           onPageChange={handleChangePage}
